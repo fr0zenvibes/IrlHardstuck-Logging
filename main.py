@@ -2,19 +2,21 @@ import requests
 import os
 import time
 from dotenv import load_dotenv
+import threading
+from health_check import run_flask
 
 load_dotenv()
 
 # --- CONFIG ---
-TWITCH_BROADCASTER_ID = os.getenv("TWITCH_BROADCASTER_ID")
-TWITCH_MODERATOR_ID = os.getenv("TWITCH_MODERATOR_ID")
-TWITCH_TOKEN = os.getenv("TWITCH_TOKEN")
-TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
-DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
+TWITCH_BROADCASTER_ID = os.getenv("TWITCH_BROADCASTER_ID")  # e.g., 123456
+TWITCH_MODERATOR_ID = os.getenv("TWITCH_MODERATOR_ID")      # e.g., your bot or mod ID
+TWITCH_TOKEN = os.getenv("TWITCH_TOKEN")                    # OAuth token
+TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")            # Twitch App Client ID
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")              # Discord webhook URL
 
 WATCHLIST = {"arky", "bonnie", "itsoddo", "nobodyx_", "barky4l", "zoil", "cinna", "1jdab1", "santipulgaz", "yugi2x", "bigmonraph", "nosiiree", "emiru", "rosii"}
 
-CHECK_INTERVAL = 10
+CHECK_INTERVAL = 30  # seconds between API calls
 
 alerted_users = set()
 
@@ -28,6 +30,7 @@ def get_chatters():
     response.raise_for_status()
     data = response.json()
     
+    # The response has 'data' field which is a list of chatters
     viewers = {user["user_login"].lower() for user in data.get("data", [])}
     return viewers
 
@@ -39,6 +42,7 @@ def main():
     while True:
         try:
             viewers = get_chatters()
+            print(viewers)
             for user in WATCHLIST:
                 if user in viewers and user not in alerted_users:
                     print(f"{user} is in chat!")
@@ -51,6 +55,10 @@ def main():
             print("Error fetching chatters:", e)
 
         time.sleep(CHECK_INTERVAL)
+
+
+flask_thread = threading.Thread(target=run_flask, daemon=True)
+flask_thread.start()
 
 if __name__ == "__main__":
     main()

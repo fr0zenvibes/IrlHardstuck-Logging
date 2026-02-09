@@ -41,7 +41,6 @@ def main():
     while True:
         try:
             viewers = get_chatters()
-            print(viewers)
             for user in WATCHLIST:
                 if user in viewers and user not in alerted_users:
                     print(f"{user} is in chat!")

@@ -24,7 +24,7 @@ WATCHLIST = {
     "nosiiree", "emiru", "rosii"
 }
 
-CHECK_INTERVAL = 10
+CHECK_INTERVAL = 30
 alerted_users = set()
 
 

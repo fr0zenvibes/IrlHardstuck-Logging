@@ -2,8 +2,6 @@ import requests
 import os
 import time
 from dotenv import load_dotenv
-import threading
-from health_check import run_flask
 
 load_dotenv()
 
@@ -27,9 +25,7 @@ WATCHLIST = {
 CHECK_INTERVAL = 30
 alerted_users = set()
 
-
-# --- TOKEN MANAGEMENT ---
-
+# --- ENV TOKEN MANAGEMENT ---
 def update_env_tokens(access_token, refresh_token):
     if not os.path.exists(".env"):
         return
@@ -46,72 +42,72 @@ def update_env_tokens(access_token, refresh_token):
             else:
                 f.write(line)
 
-
+# --- TWITCH TOKEN REFRESH ---
 def refresh_twitch_token():
     global TWITCH_TOKEN, TWITCH_REFRESH_TOKEN
-
     print("🔄 Refreshing Twitch access token...")
 
     url = "https://id.twitch.tv/oauth2/token"
-    params = {
+    data = {
         "grant_type": "refresh_token",
         "refresh_token": TWITCH_REFRESH_TOKEN,
         "client_id": TWITCH_CLIENT_ID,
-        "client_secret": TWITCH_CLIENT_SECRET,
+        "client_secret": TWITCH_CLIENT_SECRET
     }
 
-    response = requests.post(url, params=params)
+    response = requests.post(url, data=data)
+    if response.status_code == 403:
+        raise Exception("❌ Refresh token invalid! You need to re-authorize manually.")
+
     response.raise_for_status()
-    data = response.json()
+    tokens = response.json()
 
-    TWITCH_TOKEN = data["access_token"]
-    TWITCH_REFRESH_TOKEN = data["refresh_token"]
-
+    TWITCH_TOKEN = tokens["access_token"]
+    TWITCH_REFRESH_TOKEN = tokens["refresh_token"]
     update_env_tokens(TWITCH_TOKEN, TWITCH_REFRESH_TOKEN)
-
     print("✅ Twitch token refreshed successfully")
 
+# --- TWITCH REQUEST HANDLER ---
+def make_twitch_request(url, method="GET", **kwargs):
+    global TWITCH_TOKEN
+    headers = kwargs.pop("headers", {})
+    headers["Authorization"] = f"Bearer {TWITCH_TOKEN}"
+    headers["Client-Id"] = TWITCH_CLIENT_ID
 
-# --- TWITCH API ---
+    response = requests.request(method, url, headers=headers, **kwargs)
 
+    if response.status_code == 401:
+        # Token expired, refresh
+        refresh_twitch_token()
+        headers["Authorization"] = f"Bearer {TWITCH_TOKEN}"
+        response = requests.request(method, url, headers=headers, **kwargs)
+    elif response.status_code == 403:
+        raise Exception("❌ Forbidden! Check token scopes or refresh token.")
+
+    response.raise_for_status()
+    return response.json()
+
+# --- GET CHATTERS ---
 def get_chatters():
     url = (
-        "https://api.twitch.tv/helix/chat/chatters"
+        f"https://api.twitch.tv/helix/chat/chatters"
         f"?broadcaster_id={TWITCH_BROADCASTER_ID}"
         f"&moderator_id={TWITCH_MODERATOR_ID}"
     )
-
-    headers = {
-        "Authorization": f"Bearer {TWITCH_TOKEN}",
-        "Client-Id": TWITCH_CLIENT_ID
-    }
-
-    response = requests.get(url, headers=headers)
-
-    # Token expired or revoked
-    if response.status_code == 401:
-        refresh_twitch_token()
-        headers["Authorization"] = f"Bearer {TWITCH_TOKEN}"
-        response = requests.get(url, headers=headers)
-
-    response.raise_for_status()
-    data = response.json()
-
+    data = make_twitch_request(url)
     return {user["user_login"].lower() for user in data.get("data", [])}
 
-
 # --- DISCORD ---
-
 def send_to_discord(username):
     payload = {"content": f"🚨 **{username}** is in chat now!"}
-    requests.post(DISCORD_WEBHOOK, json=payload)
-
+    try:
+        requests.post(DISCORD_WEBHOOK, json=payload)
+    except Exception as e:
+        print("❌ Discord webhook failed:", e)
 
 # --- MAIN LOOP ---
-
 def main():
     print("👀 Twitch chat watcher started")
-
     while True:
         try:
             viewers = get_chatters()
@@ -130,9 +126,6 @@ def main():
             print("❌ Error:", e)
 
         time.sleep(CHECK_INTERVAL)
-
-flask_thread = threading.Thread(target=run_flask, daemon=True)
-flask_thread.start()
 
 if __name__ == "__main__":
     main()

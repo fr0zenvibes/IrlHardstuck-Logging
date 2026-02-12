@@ -2,6 +2,8 @@ import requests
 import os
 import time
 from dotenv import load_dotenv
+import threading
+from health_check import run_flask
 
 load_dotenv()
 
@@ -104,6 +106,9 @@ def send_to_discord(username):
         requests.post(DISCORD_WEBHOOK, json=payload)
     except Exception as e:
         print("❌ Discord webhook failed:", e)
+
+flask_thread = threading.Thread(target=run_flask, daemon=True)
+flask_thread.start()
 
 # --- MAIN LOOP ---
 def main():
